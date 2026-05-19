@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FRED Macro Dashboard — Sunday Trading</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f3; color: #1a1a1a; min-height: 100vh; padding: 2rem 1rem; }
+.container { max-width: 760px; margin: 0 auto; }
+h1 { font-size: 24px; font-weight: 600; color: #1D4E89; margin-bottom: 4px; }
+.subtitle { font-size: 14px; color: #888; margin-bottom: 1.5rem; }
+.card { background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; }
+.section-label { font-size: 11px; font-weight: 600; color: #aaa; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 10px; }
+.key-row { display: flex; gap: 8px; align-items: center; }
+.key-row input { flex: 1; height: 40px; border: 1px solid #ddd; border-radius: 8px; padding: 0 12px; font-family: monospace; font-size: 13px; color: #1a1a1a; background: #fafafa; outline: none; }
+.key-row input:focus { border-color: #185FA5; background: #fff; }
+.key-hint { font-size: 12px; color: #aaa; margin-top: 8px; line-height: 1.6; }
+.key-hint a { color: #185FA5; }
+.save-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; color: #888; cursor: pointer; }
+button { height: 40px; padding: 0 18px; background: #1D4E89; color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+button:hover { background: #185FA5; }
+button:disabled { background: #bbb; cursor: not-allowed; }
+.btn-outline { background: transparent; color: #1D4E89; border: 1px solid #1D4E89; }
+.btn-outline:hover { background: #E6F1FB; }
+#status { font-size: 13px; color: #888; min-height: 22px; margin-bottom: 6px; }
+.err { color: #A32D2D !important; font-weight: 500; }
+.spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid #ddd; border-top-color: #185FA5; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#dashboard { display: none; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 1rem; }
+.metric { background: #f7f7f5; border-radius: 8px; padding: 1rem; }
+.metric .lbl { font-size: 12px; color: #888; margin-bottom: 6px; }
+.metric .val { font-size: 28px; font-weight: 600; color: #1a1a1a; line-height: 1.1; }
+.metric .chg { font-size: 12px; margin-top: 6px; }
+.badge { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 20px; }
+.badge-up { background: #EAF3DE; color: #27500A; }
+.badge-down { background: #FCEBEB; color: #791F1F; }
+.badge-neutral { background: #efefed; color: #888; }
+.chart-wrap { position: relative; width: 100%; height: 200px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 10px; font-size: 12px; color: #888; }
+.legend span { display: flex; align-items: center; gap: 5px; }
+.leg-line { width: 18px; height: 2px; display: inline-block; border-radius: 2px; }
+.bias-box { border-radius: 8px; padding: 1rem 1.25rem; border: 1px solid #e5e5e5; }
+.bias-verdict { font-size: 14px; font-weight: 600; line-height: 1.5; margin-bottom: 8px; }
+.bias-signal { font-size: 12px; color: #555; margin-top: 4px; }
+.actions { display: flex; gap: 8px; margin-top: 1rem; flex-wrap: wrap; }
+.actions button { flex: 1; min-width: 160px; }
+.confirm { font-size: 12px; color: #1D9E75; text-align: center; margin-top: 6px; display: none; }
+.last-updated { font-size: 12px; color: #aaa; text-align: right; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>FRED Macro Dashboard</h1>
+  <p class="subtitle">Sunday Trading Session — Phase 1 Market Context</p>
+
+  <div class="card">
+    <p class="section-label">FRED API key</p>
+    <div class="key-row">
+      <input type="text" id="apiKey" placeholder="Paste your 32-character FRED API key" />
+      <button id="fetchBtn" onclick="fetchAll()">Load data</button>
+    </div>
+    <label class="save-row">
+      <input type="checkbox" id="saveKey"> Remember key in this browser
+    </label>
+    <p class="key-hint">
+      Free key: <a href="https://fred.stlouisfed.org/docs/api/api_key.html" target="_blank">fred.stlouisfed.org/docs/api/api_key.html</a> — takes 2 min<br>
+      New keys can take 10–15 min to activate after you request them
+    </p>
+  </div>
+
+  <div id="status"></div>
+
+  <div id="dashboard">
+    <div id="last-updated" class="last-updated"></div>
+
+    <div class="metrics">
+      <div class="metric">
+        <div class="lbl">CPI (year-over-year)</div>
+        <div class="val" id="cpi-val">—</div>
+        <div class="chg"><span id="cpi-badge" class="badge badge-neutral">—</span></div>
+      </div>
+      <div class="metric">
+        <div class="lbl">Fed funds rate</div>
+        <div class="val" id="ffr-val">—</div>
+        <div class="chg"><span id="ffr-badge" class="badge badge-neutral">—</span></div>
+      </div>
+      <div class="metric">
+        <div class="lbl">10-year treasury yield</div>
+        <div class="val" id="t10-val">—</div>
+        <div class="chg"><span id="t10-badge" class="badge badge-neutral">—</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="section-label">12-month trend</p>
+      <div class="legend">
+        <span><span class="leg-line" style="background:#185FA5;"></span>CPI %</span>
+        <span><span class="leg-line" style="background:#1D9E75;"></span>Fed rate %</span>
+        <span><span class="leg-line" style="background:#D85A30; border-top: 2px dashed #D85A30; background:transparent;"></span>10Y yield %</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="trendChart" role="img" aria-label="12-month trend for CPI, Fed Funds Rate, and 10-Year Treasury Yield"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="section-label">Macro bias</p>
+      <div id="bias-box" class="bias-box">
+        <div id="bias-verdict" class="bias-verdict"></div>
+        <div id="bias-signals"></div>
+      </div>
+      <div class="actions">
+        <button class="btn-outline" onclick="copyForClaude()">Copy analysis for Claude</button>
+        <button onclick="fetchAll()">Refresh</button>
+      </div>
+      <p class="confirm" id="copy-confirm">Copied! Paste into your Claude Trading Project.</p>
+    </div>
+  </div>
+
+</div>
+<script>
+var seriesData = {};
+var chartInstance = null;
+var pending = {};
+var results = {};
+
+window.onload = function() {
+  var saved = localStorage.getItem('fred_api_key');
+  if (saved) {
+    document.getElementById('apiKey').value = saved;
+    document.getElementById('saveKey').checked = true;
+  }
+};
+
+function setStatus(msg, isErr) {
+  var el = document.getElementById('status');
+  el.innerHTML = msg;
+  el.className = isErr ? 'err' : '';
+}
+
+function jsonp(url, callbackName) {
+  return new Promise(function(resolve, reject) {
+    var timeout = setTimeout(function() {
+      delete window[callbackName];
+      var s = document.getElementById('jsonp_' + callbackName);
+      if (s) s.remove();
+      reject(new Error('Request timed out — check your API key or internet connection'));
+    }, 12000);
+
+    window[callbackName] = function(data) {
+      clearTimeout(timeout);
+      delete window[callbackName];
+      var s = document.getElementById('jsonp_' + callbackName);
+      if (s) s.remove();
+      if (data.error_message) {
+        reject(new Error(data.error_message));
+      } else {
+        resolve(data);
+      }
+    };
+
+    var script = document.createElement('script');
+    script.id = 'jsonp_' + callbackName;
+    script.src = url + '&callback=' + callbackName;
+    script.onerror = function() {
+      clearTimeout(timeout);
+      delete window[callbackName];
+      reject(new Error('Network error — could not reach FRED API'));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+function parseSeries(data) {
+  return data.observations
+    .filter(function(o) { return o.value !== '.'; })
+    .map(function(o) { return { date: o.date, value: parseFloat(parseFloat(o.value).toFixed(2)) }; })
+    .slice(-13);
+}
+
+async function fetchAll() {
+  var key = document.getElementById('apiKey').value.trim();
+  if (!key) { setStatus('Please enter your FRED API key first.', true); return; }
+
+  if (document.getElementById('saveKey').checked) {
+    localStorage.setItem('fred_api_key', key);
+  } else {
+    localStorage.removeItem('fred_api_key');
+  }
+
+  document.getElementById('fetchBtn').disabled = true;
+  document.getElementById('dashboard').style.display = 'none';
+  setStatus('<span class="spinner"></span> Fetching from FRED…');
+
+  var base = 'https://api.stlouisfed.org/fred/series/observations?file_type=json&sort_order=desc&limit=14&api_key=' + key;
+
+  try {
+    var cpiRaw = await jsonp(base + '&series_id=CPIAUCSL&units=pch', 'cb_cpi_' + Date.now());
+    var ffrRaw = await jsonp(base + '&series_id=FEDFUNDS&units=lin', 'cb_ffr_' + Date.now());
+    var t10Raw = await jsonp(base + '&series_id=DGS10&units=lin',    'cb_t10_' + Date.now());
+
+    seriesData = {
+      cpi: parseSeries(cpiRaw),
+      ffr: parseSeries(ffrRaw),
+      t10: parseSeries(t10Raw),
+    };
+
+    renderDashboard();
+    setStatus('');
+    document.getElementById('dashboard').style.display = 'block';
+    var now = new Date().toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    document.getElementById('last-updated').textContent = 'Last updated: ' + now;
+  } catch(e) {
+    setStatus('Error: ' + e.message, true);
+  }
+
+  document.getElementById('fetchBtn').disabled = false;
+}
+
+function renderDashboard() {
+  var cpi = seriesData.cpi;
+  var ffr = seriesData.ffr;
+  var t10 = seriesData.t10;
+
+  var cpiVal = cpi[cpi.length - 1].value;
+  var ffrVal = ffr[ffr.length - 1].value;
+  var t10Val = t10[t10.length - 1].value;
+  var cpiPrev = cpi.length > 1 ? cpi[cpi.length - 2].value : null;
+  var ffrPrev = ffr.length > 1 ? ffr[ffr.length - 2].value : null;
+  var t10Prev = t10.length > 1 ? t10[t10.length - 2].value : null;
+
+  document.getElementById('cpi-val').textContent = cpiVal.toFixed(2) + '%';
+  document.getElementById('ffr-val').textContent = ffrVal.toFixed(2) + '%';
+  document.getElementById('t10-val').textContent = t10Val.toFixed(2) + '%';
+
+  function setBadge(id, cur, prev, higherIsBad) {
+    var el = document.getElementById(id);
+    if (prev === null) { el.textContent = 'no prior data'; el.className = 'badge badge-neutral'; return; }
+    var diff = (cur - prev).toFixed(2);
+    var up = cur > prev;
+    var unchanged = cur === prev;
+    var sign = up ? '+' : '';
+    var cls = unchanged ? 'badge-neutral' : (higherIsBad ? (up ? 'badge-down' : 'badge-up') : (up ? 'badge-up' : 'badge-down'));
+    el.textContent = sign + diff + '% vs prior';
+    el.className = 'badge ' + cls;
+  }
+
+  setBadge('cpi-badge', cpiVal, cpiPrev, true);
+  setBadge('ffr-badge', ffrVal, ffrPrev, true);
+  setBadge('t10-badge', t10Val, t10Prev, true);
+
+  var labels = cpi.map(function(d) { return d.date.slice(0, 7); });
+  var alignedFfr = labels.map(function(l) { var m = ffr.find(function(d) { return d.date.slice(0,7) === l; }); return m ? m.value : null; });
+  var alignedT10 = labels.map(function(l) { var m = t10.find(function(d) { return d.date.slice(0,7) === l; }); return m ? m.value : null; });
+
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'CPI %', data: cpi.map(function(d) { return d.value; }), borderColor: '#185FA5', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3, borderWidth: 2 },
+        { label: 'Fed rate %', data: alignedFfr, borderColor: '#1D9E75', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3, borderWidth: 2 },
+        { label: '10Y yield %', data: alignedT10, borderColor: '#D85A30', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3, borderWidth: 2, borderDash: [4, 3] },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { font: { size: 11 }, maxRotation: 45, autoSkip: true }, grid: { color: 'rgba(0,0,0,0.05)' } },
+        y: { ticks: { font: { size: 11 }, callback: function(v) { return v.toFixed(1) + '%'; } }, grid: { color: 'rgba(0,0,0,0.05)' } }
+      }
+    }
+  });
+
+  renderBias(cpiVal, ffrVal, t10Val, cpiPrev, t10Prev);
+}
+
+function renderBias(cpi, ffr, t10, cpiPrev, t10Prev) {
+  var signals = [];
+  var bullCount = 0, bearCount = 0;
+
+  if (cpi < 2.5) { signals.push('CPI under 2.5% — inflation is under control'); bullCount++; }
+  else if (cpi < 3.5) { signals.push('CPI between 2.5–3.5% — elevated but manageable'); }
+  else { signals.push('CPI above 3.5% — inflation is hot, Fed likely staying hawkish'); bearCount++; }
+
+  if (cpiPrev !== null) {
+    if (cpi < cpiPrev) { signals.push('Inflation trend is cooling (down from prior month)'); bullCount++; }
+    else if (cpi > cpiPrev) { signals.push('Inflation re-accelerating (up from prior month)'); bearCount++; }
+  }
+
+  if (ffr >= 4.5) { signals.push('Fed rate at ' + ffr.toFixed(2) + '% — restrictive, headwind for growth stocks'); bearCount++; }
+  else if (ffr >= 3) { signals.push('Fed rate at ' + ffr.toFixed(2) + '% — moderately elevated'); }
+  else { signals.push('Fed rate at ' + ffr.toFixed(2) + '% — accommodative, tailwind for equities'); bullCount++; }
+
+  if (t10 >= 4.5) { signals.push('10Y yield at ' + t10.toFixed(2) + '% — expensive to borrow, headwind for growth'); bearCount++; }
+  else if (t10 >= 4) { signals.push('10Y yield at ' + t10.toFixed(2) + '% — elevated but not alarming'); }
+  else { signals.push('10Y yield at ' + t10.toFixed(2) + '% — low, supportive of equities'); bullCount++; }
+
+  var verdict, bg, border;
+  if (bullCount >= 3) {
+    verdict = 'Risk-on — macro backdrop is favorable. Lean into clean setups, full position sizing.';
+    bg = '#F0FAF2'; border = '#1D9E75';
+  } else if (bearCount >= 3) {
+    verdict = 'Risk-off — macro is a headwind. Take only A+ setups, lower end of position sizing, stay defensive.';
+    bg = '#FEF2F2'; border = '#A32D2D';
+  } else {
+    verdict = 'Mixed signals — macro is neutral. Trade normally but stay selective. Prioritize your best setups only.';
+    bg = '#FFFBF0'; border = '#BA7517';
+  }
+
+  var box = document.getElementById('bias-box');
+  box.style.background = bg;
+  box.style.borderColor = border;
+  document.getElementById('bias-verdict').textContent = verdict;
+  document.getElementById('bias-signals').innerHTML = signals.map(function(s) {
+    return '<div class="bias-signal">• ' + s + '</div>';
+  }).join('');
+}
+
+function copyForClaude() {
+  if (!seriesData.cpi) return;
+  var cpiLast = seriesData.cpi[seriesData.cpi.length - 1];
+  var ffrLast = seriesData.ffr[seriesData.ffr.length - 1];
+  var t10Last = seriesData.t10[seriesData.t10.length - 1];
+  var verdict = document.getElementById('bias-verdict').textContent;
+  var signals = Array.from(document.querySelectorAll('.bias-signal')).map(function(el) { return el.textContent; }).join('\n');
+
+  var text = 'Here\'s my current FRED macro data as of ' + cpiLast.date + ':\n'
+    + '- CPI (YoY change): ' + cpiLast.value.toFixed(2) + '%\n'
+    + '- Fed Funds Rate: ' + ffrLast.value.toFixed(2) + '%\n'
+    + '- 10-Year Treasury Yield: ' + t10Last.value.toFixed(2) + '%\n\n'
+    + 'Dashboard bias: ' + verdict + '\n'
+    + signals + '\n\n'
+    + 'Please give me a full macro analysis for this week — how should this affect my swing trade decisions, setup selectivity, and position sizing?';
+
+  navigator.clipboard.writeText(text).then(function() {
+    var el = document.getElementById('copy-confirm');
+    el.style.display = 'block';
+    setTimeout(function() { el.style.display = 'none'; }, 3000);
+  });
+}
+</script>
+</body>
+</html>
